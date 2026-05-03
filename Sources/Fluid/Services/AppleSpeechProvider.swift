@@ -23,8 +23,8 @@ final class AppleSpeechProvider: TranscriptionProvider {
     private var recognizer: SFSpeechRecognizer?
 
     init() {
-        // Initialize with user's current locale
-        self.recognizer = SFSpeechRecognizer(locale: Locale.current)
+        // Initialize with Chinese locale as default
+        self.recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
     }
 
     // MARK: - Lifecycle
@@ -71,7 +71,7 @@ final class AppleSpeechProvider: TranscriptionProvider {
 
         // 2. Ensure recognizer exists
         if self.recognizer == nil {
-            self.recognizer = SFSpeechRecognizer(locale: Locale.current)
+            self.recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
         }
         guard let recognizer = self.recognizer else {
             throw NSError(domain: "AppleSpeechProvider", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize SFSpeechRecognizer"])

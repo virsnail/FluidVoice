@@ -4,8 +4,8 @@ struct AnalyticsConfig {
     let postHogApiKey: String
     let postHogHost: String
 
-    /// Default EU ingestion host.
-    nonisolated static let defaultEUHost = "https://eu.i.posthog.com"
+    /// Default local host for privacy.
+    nonisolated static let defaultEUHost = "http://localhost:8000"
 
     nonisolated static func fromBundle() -> AnalyticsConfig {
         let info = Bundle.main.infoDictionary ?? [:]

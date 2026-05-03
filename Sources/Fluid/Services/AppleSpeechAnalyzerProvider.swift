@@ -39,7 +39,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
     func prepare(progressHandler: ((Double) -> Void)?) async throws {
         // 1. Create a transcriber to check locale support and download if needed
         let transcriber = SpeechTranscriber(
-            locale: Locale.current,
+            locale: Locale(identifier: "zh-CN"),
             transcriptionOptions: [],
             reportingOptions: [],
             attributeOptions: []
@@ -47,7 +47,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
 
         // 2. Check if locale is supported
         let supportedLocales = await SpeechTranscriber.supportedLocales
-        let currentLocaleID = Locale.current.identifier(.bcp47)
+        let currentLocaleID = "zh-CN"
         let isSupported = supportedLocales.map { $0.identifier(.bcp47) }.contains(currentLocaleID)
 
         guard isSupported else {
@@ -122,7 +122,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
     /// - Returns: `true` if the current locale's speech model is installed on disk, `false` otherwise.
     func refreshModelsExistOnDiskAsync() async -> Bool {
         let installedLocales = await SpeechTranscriber.installedLocales
-        let currentLocaleID = Locale.current.identifier(.bcp47)
+        let currentLocaleID = "zh-CN"
         let isInstalled = installedLocales.map { $0.identifier(.bcp47) }.contains(currentLocaleID)
 
         self._cacheQueue.sync { self._modelsInstalledCache = isInstalled }
@@ -150,7 +150,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
 
         // 1. Create a FRESH transcriber for this transcription
         let freshTranscriber = SpeechTranscriber(
-            locale: Locale.current,
+            locale: Locale(identifier: "zh-CN"),
             transcriptionOptions: [],
             reportingOptions: [],
             attributeOptions: []
