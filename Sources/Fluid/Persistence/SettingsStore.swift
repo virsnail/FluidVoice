@@ -1292,6 +1292,14 @@ final class SettingsStore: ObservableObject {
         set { self.defaults.set(newValue, forKey: Keys.preferredInputDeviceUID) }
     }
 
+    /// Ordered list of input device UIDs representing the user's preferred microphone priority.
+    /// The app will always use the first available device in this list at the moment recording starts.
+    /// Devices not in this list are placed at the end (appended dynamically when first seen).
+    var inputDevicePriorityList: [String] {
+        get { self.defaults.stringArray(forKey: Keys.inputDevicePriorityList) ?? [] }
+        set { self.defaults.set(newValue, forKey: Keys.inputDevicePriorityList) }
+    }
+
     var preferredOutputDeviceUID: String? {
         get { self.defaults.string(forKey: Keys.preferredOutputDeviceUID) }
         set { self.defaults.set(newValue, forKey: Keys.preferredOutputDeviceUID) }
@@ -3583,6 +3591,7 @@ private extension SettingsStore {
         static let fluid1InterestCaptured = "Fluid1InterestCaptured"
         static let hotkeyShortcutKey = "HotkeyShortcutKey"
         static let preferredInputDeviceUID = "PreferredInputDeviceUID"
+        static let inputDevicePriorityList = "InputDevicePriorityList"
         static let preferredOutputDeviceUID = "PreferredOutputDeviceUID"
         static let syncAudioDevicesWithSystem = "SyncAudioDevicesWithSystem"
         static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"

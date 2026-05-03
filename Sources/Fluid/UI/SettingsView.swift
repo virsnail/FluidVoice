@@ -946,87 +946,32 @@ struct SettingsView: View {
                             .controlSize(.small)
                         }
 
-                        // Info note about device syncing
+                        // Info note about device priority
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "info.circle")
                                 .foregroundStyle(.secondary)
                                 .font(.body)
-                            Text("Audio devices are synced with macOS System Settings.")
+                            Text("App uses the highest-ranked available microphone. Drag to reorder priority. Devices are synced with macOS System Settings.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(.vertical, 4)
 
+                        // --- Microphone Priority List ---
+                        InputDevicePriorityListView(inputDevices: self.$inputDevices)
+
+                        // Output Device (unchanged)
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("Input Device")
-                                    .font(.body)
-                                Spacer()
-                                Picker("", selection: self.$selectedInputUID) {
-                                    // Handle empty state gracefully
-                                    if self.inputDevices.isEmpty {
-                                        Text("Loading...").tag("")
-                                    } else {
-                                        ForEach(self.inputDevices, id: \.uid) { dev in
-                                            // Add "(System Default)" tag using cached name to avoid CoreAudio calls during layout
-                                            let isSystemDefault = !self.cachedDefaultInputName.isEmpty && dev.name == self.cachedDefaultInputName
-                                            Text(isSystemDefault ? "\(dev.name) (System Default)" : dev.name).tag(dev.uid)
-                                        }
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: 240)
-                                .disabled(self.asr.isRunning) // Disable device changes during recording
-                                .onChange(of: self.selectedInputUID) { oldUID, newUID in
-                                    guard !newUID.isEmpty else { return }
-
-                                    // Prevent device changes during active recording
-                                    if self.asr.isRunning {
-                                        DebugLogger.shared.warning("Cannot change input device during recording", source: "SettingsView")
-                                        // Revert to previous value
-                                        self.selectedInputUID = oldUID
-                                        return
-                                    }
-
-                                    SettingsStore.shared.preferredInputDeviceUID = newUID
-                                    // Only change system default if sync is enabled
-                                    if SettingsStore.shared.syncAudioDevicesWithSystem {
-                                        _ = AudioDevice.setDefaultInputDevice(uid: newUID)
-                                    }
-                                }
-                                // Sync selection when devices load or change
-                                .onChange(of: self.inputDevices) { _, newDevices in
-                                    // Update cached default device name when device list changes
-                                    self.cachedDefaultInputName = AudioDevice.getDefaultInputDevice()?.name ?? ""
-
-                                    // If selection is empty or not found in new list, select first available
-                                    if !newDevices.isEmpty {
-                                        let currentValid = newDevices.contains { $0.uid == self.selectedInputUID }
-                                        if !currentValid {
-                                            if let defaultUID = AudioDevice.getDefaultInputDevice()?.uid,
-                                               newDevices.contains(where: { $0.uid == defaultUID })
-                                            {
-                                                self.selectedInputUID = defaultUID
-                                            } else {
-                                                self.selectedInputUID = newDevices.first?.uid ?? ""
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
                             HStack {
                                 Text("Output Device")
                                     .font(.body)
                                 Spacer()
                                 Picker("", selection: self.$selectedOutputUID) {
-                                    // Handle empty state gracefully
                                     if self.outputDevices.isEmpty {
                                         Text("Loading...").tag("")
                                     } else {
                                         ForEach(self.outputDevices, id: \.uid) { dev in
-                                            // Add "(System Default)" tag using cached name to avoid CoreAudio calls during layout
                                             let isSystemDefault = !self.cachedDefaultOutputName.isEmpty && dev.name == self.cachedDefaultOutputName
                                             Text(isSystemDefault ? "\(dev.name) (System Default)" : dev.name).tag(dev.uid)
                                         }
@@ -1034,29 +979,21 @@ struct SettingsView: View {
                                 }
                                 .pickerStyle(.menu)
                                 .frame(width: 240)
-                                .disabled(self.asr.isRunning) // Disable device changes during recording
+                                .disabled(self.asr.isRunning)
                                 .onChange(of: self.selectedOutputUID) { oldUID, newUID in
                                     guard !newUID.isEmpty else { return }
-
-                                    // Prevent device changes during active recording
                                     if self.asr.isRunning {
                                         DebugLogger.shared.warning("Cannot change output device during recording", source: "SettingsView")
-                                        // Revert to previous value
                                         self.selectedOutputUID = oldUID
                                         return
                                     }
-
                                     SettingsStore.shared.preferredOutputDeviceUID = newUID
-                                    // Only change system default if sync is enabled
                                     if SettingsStore.shared.syncAudioDevicesWithSystem {
                                         _ = AudioDevice.setDefaultOutputDevice(uid: newUID)
                                     }
                                 }
-                                // Sync selection when devices load or change
                                 .onChange(of: self.outputDevices) { _, newDevices in
-                                    // Update cached default device name when device list changes
                                     self.cachedDefaultOutputName = AudioDevice.getDefaultOutputDevice()?.name ?? ""
-
                                     if !newDevices.isEmpty {
                                         let currentValid = newDevices.contains { $0.uid == self.selectedOutputUID }
                                         if !currentValid {
@@ -1076,8 +1013,6 @@ struct SettingsView: View {
                                 }
                             }
 
-                            // CRITICAL FIX: Use cached values instead of querying CoreAudio in view body.
-                            // Querying AudioDevice here triggers HALSystem::InitializeShell() race condition.
                             if !self.cachedDefaultInputName.isEmpty && !self.cachedDefaultOutputName.isEmpty {
                                 HStack {
                                     Spacer()
@@ -1087,11 +1022,6 @@ struct SettingsView: View {
                                         .lineLimit(1)
                                 }
                             }
-
-                            // REMOVED: Sync mode toggle
-                            // Independent mode doesn't work for aggregate devices (Bluetooth, etc.)
-                            // due to CoreAudio limitation (OSStatus -10851)
-                            // Always use sync mode for reliability across all device types
                         }
                     }
                     .padding(16)

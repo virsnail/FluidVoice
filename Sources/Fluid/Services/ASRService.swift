@@ -1155,8 +1155,9 @@ final class ASRService: ObservableObject {
         DebugLogger.shared.debug("✅ configureSession() - COMPLETED", source: "ASRService")
     }
 
-    /// In independent mode, attempt to bind AVAudioEngine's input to the user's preferred input device.
-    /// In sync-with-system mode, we intentionally do nothing so the engine follows macOS defaults.
+    /// Attempts to bind AVAudioEngine's input to the highest-priority available device
+    /// from the user's `inputDevicePriorityList`. Falls back to system default if the list
+    /// is empty or no listed device is currently connected.
     /// Returns true if binding succeeded or if no binding was needed, false if binding failed completely.
     @discardableResult
     private func bindPreferredInputDeviceIfNeeded() -> Bool {
@@ -1167,6 +1168,27 @@ final class ASRService: ObservableObject {
             return true
         }
 
+        let priorityList = SettingsStore.shared.inputDevicePriorityList
+        if !priorityList.isEmpty {
+            let currentDevices = AudioDevice.listInputDevices()
+            // Walk the priority list and use the first device that is currently connected
+            for uid in priorityList {
+                if let device = currentDevices.first(where: { $0.uid == uid }) {
+                    DebugLogger.shared.info("🎯 Priority list: using '\(device.name)' (uid: \(uid))", source: "ASRService")
+                    let ok = self.setEngineInputDevice(deviceID: device.id, deviceUID: device.uid, deviceName: device.name)
+                    if ok {
+                        // Keep preferredInputDeviceUID in sync for legacy code paths
+                        SettingsStore.shared.preferredInputDeviceUID = device.uid
+                        return true
+                    }
+                    DebugLogger.shared.warning("Failed to bind priority device '\(device.name)', trying next...", source: "ASRService")
+                }
+            }
+            DebugLogger.shared.info("No device from priority list is available - falling back to system default", source: "ASRService")
+            return self.tryBindToSystemDefaultInput()
+        }
+
+        // Priority list is empty: fall back to single preferredInputDeviceUID (legacy path)
         guard let preferredUID = SettingsStore.shared.preferredInputDeviceUID, preferredUID.isEmpty == false else {
             DebugLogger.shared.info("No preferred input device set - using system default", source: "ASRService")
             return true
@@ -1179,7 +1201,6 @@ final class ASRService: ObservableObject {
                 "Preferred input device not found (uid: \(preferredUID)). Falling back to system default input.",
                 source: "ASRService"
             )
-            // Try to use system default as fallback
             return self.tryBindToSystemDefaultInput()
         }
 
@@ -1191,7 +1212,6 @@ final class ASRService: ObservableObject {
                 "Failed to bind engine input to preferred device '\(device.name)' (uid: \(device.uid)). Trying system default input.",
                 source: "ASRService"
             )
-            // Try to use system default as fallback
             return self.tryBindToSystemDefaultInput()
         }
 
@@ -1888,6 +1908,7 @@ final class ASRService: ObservableObject {
         // Perform CoreAudio queries off the main thread — during a device topology change
         // the HAL may still be settling, and synchronous queries on main can deadlock.
         let preferredUID = SettingsStore.shared.preferredInputDeviceUID
+        let priorityList = SettingsStore.shared.inputDevicePriorityList
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let currentDevices = AudioDevice.listInputDevices()
             let systemDefault = AudioDevice.getDefaultInputDevice()
@@ -1898,61 +1919,81 @@ final class ASRService: ObservableObject {
 
                 DebugLogger.shared.debug("Current input devices: \(currentDevices.map { $0.name }.joined(separator: ", "))", source: "ASRService")
 
-                // Check if preferred device is now available (for auto-switch)
-                if let preferredUID,
-                   let preferredDevice = currentDevices.first(where: { $0.uid == preferredUID })
-                {
-                    if let currentDevice = self.getCurrentlyBoundInputDevice(),
-                       currentDevice.uid != preferredUID,
-                       currentDevice.uid == systemDefault?.uid
+                // If priority list is set, auto-switch to the highest-priority available device
+                // when a new device is connected and it outranks the current one.
+                if !priorityList.isEmpty {
+                    // Find the highest-priority device that is currently available
+                    if let bestDevice = currentDevices.first(where: { priorityList.contains($0.uid) && priorityList.firstIndex(of: $0.uid) != nil })
+                        .flatMap({ candidate -> AudioDevice.Device? in
+                            // Ensure we pick the highest-priority one, not just the first match
+                            let available = currentDevices.filter { priorityList.contains($0.uid) }
+                            let sorted = available.sorted {
+                                (priorityList.firstIndex(of: $0.uid) ?? Int.max) <
+                                (priorityList.firstIndex(of: $1.uid) ?? Int.max)
+                            }
+                            return sorted.first
+                        })
                     {
-                        DebugLogger.shared.info(
-                            "🔌 Preferred device '\(preferredDevice.name)' reconnected. Auto-switching...",
-                            source: "ASRService"
-                        )
+                        let currentDevice = self.getCurrentlyBoundInputDevice()
+                        let bestPriority = priorityList.firstIndex(of: bestDevice.uid) ?? Int.max
+                        let currentPriority = currentDevice.flatMap { priorityList.firstIndex(of: $0.uid) } ?? Int.max
 
-                        if self.isRunning {
+                        if bestDevice.uid != currentDevice?.uid, bestPriority < currentPriority {
                             DebugLogger.shared.info(
-                                "Recording in progress - deferring preferred device switch until audio route recovery",
+                                "🔌 Higher-priority device '\(bestDevice.name)' is available. Auto-switching...",
                                 source: "ASRService"
                             )
-                            self.scheduleAudioRouteRecovery(reason: "preferred input reconnected")
-                        } else {
-                            DebugLogger.shared.info("Not recording - updating binding for next session", source: "ASRService")
-                            _ = self.setEngineInputDevice(
-                                deviceID: preferredDevice.id,
-                                deviceUID: preferredDevice.uid,
-                                deviceName: preferredDevice.name
-                            )
-                        }
-                    }
-                }
-
-                // Check for newly connected Bluetooth devices (auto-switch)
-                for device in currentDevices {
-                    if device.name.localizedCaseInsensitiveContains("airpods") ||
-                        device.name.localizedCaseInsensitiveContains("bluetooth")
-                    {
-                        if !cachedUIDs.contains(device.uid) {
-                            DebugLogger.shared.info(
-                                "🎧 New Bluetooth device detected: '\(device.name)'. Auto-switching...",
-                                source: "ASRService"
-                            )
-
-                            SettingsStore.shared.preferredInputDeviceUID = device.uid
-                            DebugLogger.shared.debug("Updated preferred input device to: \(device.uid)", source: "ASRService")
-
+                            SettingsStore.shared.preferredInputDeviceUID = bestDevice.uid
                             if self.isRunning {
-                                DebugLogger.shared.info(
-                                    "Recording in progress - deferring Bluetooth switch until audio route recovery",
-                                    source: "ASRService"
-                                )
-                                self.scheduleAudioRouteRecovery(reason: "bluetooth input connected")
+                                self.scheduleAudioRouteRecovery(reason: "higher-priority input available")
                             } else {
-                                DebugLogger.shared.info("Not recording - Bluetooth device will be used on next recording", source: "ASRService")
+                                _ = self.setEngineInputDevice(
+                                    deviceID: bestDevice.id,
+                                    deviceUID: bestDevice.uid,
+                                    deviceName: bestDevice.name
+                                )
                             }
                         }
                     }
+
+                    // Append any newly-seen devices to the END of the priority list
+                    // so they appear in the UI (user can re-order manually)
+                    var updatedList = priorityList
+                    for device in currentDevices where !cachedUIDs.contains(device.uid) && !updatedList.contains(device.uid) {
+                        DebugLogger.shared.info("➕ New device '\(device.name)' appended to priority list", source: "ASRService")
+                        updatedList.append(device.uid)
+                    }
+                    if updatedList != priorityList {
+                        SettingsStore.shared.inputDevicePriorityList = updatedList
+                    }
+
+                } else {
+                    // Legacy path: priority list is empty, fall back to old preferredUID / Bluetooth logic
+                    if let preferredUID,
+                       let preferredDevice = currentDevices.first(where: { $0.uid == preferredUID })
+                    {
+                        if let currentDevice = self.getCurrentlyBoundInputDevice(),
+                           currentDevice.uid != preferredUID,
+                           currentDevice.uid == systemDefault?.uid
+                        {
+                            DebugLogger.shared.info(
+                                "🔌 Preferred device '\(preferredDevice.name)' reconnected. Auto-switching...",
+                                source: "ASRService"
+                            )
+
+                            if self.isRunning {
+                                self.scheduleAudioRouteRecovery(reason: "preferred input reconnected")
+                            } else {
+                                _ = self.setEngineInputDevice(
+                                    deviceID: preferredDevice.id,
+                                    deviceUID: preferredDevice.uid,
+                                    deviceName: preferredDevice.name
+                                )
+                            }
+                        }
+                    }
+                    // NOTE: Automatic Bluetooth auto-switch is intentionally NOT done here.
+                    // Users can set their priority list in Performance settings to control device selection.
                 }
 
                 self.cacheCurrentDeviceList(currentDevices)
