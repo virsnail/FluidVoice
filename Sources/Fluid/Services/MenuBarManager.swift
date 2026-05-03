@@ -328,12 +328,13 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         preferencesItem.keyEquivalentModifierMask = [.command]
         menu.addItem(preferencesItem)
 
-        let microphoneSubmenu = NSMenu(title: "Microphone")
-        let microphoneMenuItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
-        microphoneMenuItem.submenu = microphoneSubmenu
+        // Microphone indicator: read-only item showing the current top-priority available device.
+        // No submenu — user manages priority order in Preferences → Audio Devices.
+        let microphoneMenuItem = NSMenuItem(title: "Microphone: ...", action: nil, keyEquivalent: "")
+        microphoneMenuItem.isEnabled = false  // read-only label
         menu.addItem(microphoneMenuItem)
         self.microphoneMenuItem = microphoneMenuItem
-        self.microphoneSubmenu = microphoneSubmenu
+        self.microphoneSubmenu = nil  // no submenu needed
 
         // ── Check for Updates: DISABLED for private build ──
         // Un-comment below to re-enable:
@@ -381,7 +382,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         let hotkeyInfo = hotkeyShortcut.displayString.isEmpty ? "" : " (\(hotkeyShortcut.displayString))"
         let statusTitle = self.isRecording ? "Recording...\(hotkeyInfo)" : "Ready to Record\(hotkeyInfo)"
         self.statusMenuItem?.title = statusTitle
-        self.microphoneMenuItem?.isEnabled = true
+        self.microphoneMenuItem?.isEnabled = false  // always read-only
 
         // Rollback menu item disabled — no-op since item is removed from menu
         // self.rollbackMenuItem?.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
@@ -394,24 +395,36 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
     }
 
+    /// Called when the menu opens. Asynchronously resolves the top-priority available device
+    /// and updates the single read-only "Microphone: …" menu item.
     private func refreshMicrophoneMenu() {
-        guard let submenu = self.microphoneSubmenu else { return }
+        // Show a loading placeholder immediately
+        self.microphoneMenuItem?.title = "Microphone: checking…"
 
-        submenu.removeAllItems()
-        let loadingItem = NSMenuItem(title: "Loading...", action: nil, keyEquivalent: "")
-        loadingItem.isEnabled = false
-        submenu.addItem(loadingItem)
-
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Resolve the best device: top of priority list that is currently connected
             let inputDevices = AudioDevice.listInputDevices()
-            let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
+            let priorityList = SettingsStore.shared.inputDevicePriorityList
+
+            // Find the first device in the priority list that is currently available
+            let bestDevice: AudioDevice.Device?
+            if !priorityList.isEmpty {
+                bestDevice = priorityList.lazy
+                    .compactMap { uid in inputDevices.first(where: { $0.uid == uid }) }
+                    .first
+            } else {
+                // No priority list: fall back to system default
+                bestDevice = AudioDevice.getDefaultInputDevice()
+            }
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.populateMicrophoneMenu(
-                    inputDevices: inputDevices,
-                    defaultInputUID: defaultInputUID
-                )
+                if let device = bestDevice {
+                    self.microphoneMenuItem?.title = "Mic: \(device.name)"
+                } else {
+                    self.microphoneMenuItem?.title = "Mic: (none available)"
+                }
+                self.microphoneMenuItem?.isEnabled = false
             }
         }
     }

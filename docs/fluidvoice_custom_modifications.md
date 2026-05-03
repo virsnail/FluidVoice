@@ -335,6 +335,47 @@ Output Device 的 Picker 保持不变。
 
 ---
 
+### 3.5 MenuBarManager - 菜单栏 Microphone 菜单重构
+
+**文件**：`Sources/Fluid/Services/MenuBarManager.swift`（约第 331-417 行）
+
+**原始代码**：系统托盘菜单中有一个 `Microphone` 子菜单，用户可以点击展开并在其中选择麦克风。
+
+**修改后代码**：由于我们在设置中引入了统一的“麦克风优先级列表”，为避免状态冲突和逻辑重复，将托盘区的 Microphone 子菜单移除。将其替换为一个静态的、只读的菜单项，用于**实时显示当前正在（或将要）使用的麦克风名称**（每次点击展开菜单时，都会基于优先级列表和当前已连接设备重新验证并显示）。
+
+```swift
+// 原始代码（已删除）：
+// let microphoneSubmenu = NSMenu(title: "Microphone")
+// let microphoneMenuItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
+// microphoneMenuItem.submenu = microphoneSubmenu
+// menu.addItem(microphoneMenuItem)
+
+// 修改后代码（替换为只读文本）：
+let microphoneMenuItem = NSMenuItem(title: "Microphone: ...", action: nil, keyEquivalent: "")
+microphoneMenuItem.isEnabled = false  // 设为只读标签
+menu.addItem(microphoneMenuItem)
+```
+
+并在 `refreshMicrophoneMenu()` 中加入了异步实时验证逻辑：
+```swift
+private func refreshMicrophoneMenu() {
+    self.microphoneMenuItem?.title = "Microphone: checking…"
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        // 实时获取当前已连接设备，并查找在优先级列表中排名最高的设备
+        let inputDevices = AudioDevice.listInputDevices()
+        let priorityList = SettingsStore.shared.inputDevicePriorityList
+        // ... (寻找 bestDevice) ...
+        DispatchQueue.main.async { [weak self] in
+            if let device = bestDevice {
+                self.microphoneMenuItem?.title = "Mic: \(device.name)"
+            }
+        }
+    }
+}
+```
+
+---
+
 ## 4. 禁用自动升级功能
 
 > **目标**：停止 app 的自动升级和手动升级行为，但保留版本号显示，以便用户知道是否有新版本。
