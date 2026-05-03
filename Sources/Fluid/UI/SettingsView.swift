@@ -327,181 +327,68 @@ struct SettingsView: View {
 
                             Divider().opacity(0.2)
 
-                            // Automatic Updates
+                            // ── Updates ── (auto-update & manual-update disabled for private build)
+                            // To re-enable: un-comment the blocks below and restore AppDelegate / MenuBarManager calls.
                             VStack(alignment: .leading, spacing: 6) {
-                                HStack(alignment: .center) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Automatic Updates")
-                                            .font(.body)
-                                        Text("Check for updates automatically once per hour")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
+                                Text("App Updates")
+                                    .font(.body)
+                                    .fontWeight(.medium)
 
-                                    Spacer()
+                                // Version info is always visible
+                                Text("Current version: \(self.currentAppVersion)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
 
-                                    Toggle("", isOn: Binding(
-                                        get: { SettingsStore.shared.autoUpdateCheckEnabled },
-                                        set: { SettingsStore.shared.autoUpdateCheckEnabled = $0 }
-                                    ))
-                                    .toggleStyle(.switch)
-                                    .tint(self.theme.palette.accent)
-                                    .labelsHidden()
-                                }
-
-                                HStack(alignment: .center) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Beta Releases")
-                                            .font(.body)
-                                        Text("Opt in to preview builds that may be unstable")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    Toggle("", isOn: Binding(
-                                        get: { SettingsStore.shared.betaReleasesEnabled },
-                                        set: { SettingsStore.shared.betaReleasesEnabled = $0 }
-                                    ))
-                                    .toggleStyle(.switch)
-                                    .tint(self.theme.palette.accent)
-                                    .labelsHidden()
-                                }
-
-                                if SettingsStore.shared.betaReleasesEnabled {
-                                    Text("Beta opt-in enabled. Update checks include both stable and beta builds.")
-                                        .font(.caption)
-                                        .foregroundStyle(self.theme.palette.warning)
-                                }
-
+                                // Show latest available version from last check (read-only)
                                 if let lastCheck = SettingsStore.shared.lastUpdateCheckDate {
-                                    Text("Last checked: \(lastCheck.formatted(date: .abbreviated, time: .shortened))")
+                                    Text("Last server check: \(lastCheck.formatted(date: .abbreviated, time: .shortened))")
                                         .font(.caption)
                                         .foregroundStyle(.tertiary)
                                 }
 
-                                Text("Current version: \(self.currentAppVersion)")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-
-                            // Update Buttons
-                            HStack(spacing: 10) {
-                                Button("Check for Updates") {
-                                    Task { @MainActor in
-                                        do {
-                                            let includePrerelease = SettingsStore.shared.betaReleasesEnabled
-                                            try await SimpleUpdater.shared.checkAndUpdate(
-                                                owner: "altic-dev",
-                                                repo: "Fluid-oss",
-                                                includePrerelease: includePrerelease
-                                            )
-                                            let ok = NSAlert()
-                                            ok.messageText = "Update Found!"
-                                            ok.informativeText = "A new version is available and will be installed now."
-                                            ok.alertStyle = .informational
-                                            ok.addButton(withTitle: "OK")
-                                            ok.runModal()
-                                        } catch {
-                                            let msg = NSAlert()
-                                            if let pmkError = error as? PMKError, pmkError.isCancelled {
-                                                let isBeta = SettingsStore.shared.betaReleasesEnabled
-                                                msg.messageText = isBeta ? "You're Up To Date (Beta)" : "You're Up To Date"
-                                                msg.informativeText = isBeta
-                                                    ? "You're already running the latest build available in the beta channel."
-                                                    : "You're already running the latest version of FluidVoice."
-                                            } else {
-                                                msg.messageText = "Update Check Failed"
-                                                msg.informativeText = "Unable to check for updates. Please try again later.\n\nError: \(error.localizedDescription)"
-                                            }
-                                            msg.alertStyle = .informational
-                                            msg.runModal()
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(self.theme.palette.accent)
-                                .controlSize(.regular)
-
-                                Button("Release Notes") {
-                                    if let url = URL(string: "https://github.com/altic-dev/Fluid-oss/releases") {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.regular)
-
-                                Button(self.rollbackVersion.isEmpty ? "Rollback" : "Rollback to \(self.rollbackVersion)") {
-                                    guard !self.isRollingBack else { return }
-
-                                    let infoText = self.rollbackVersion.isEmpty ? "your previously installed version" : self.rollbackVersion
-                                    let targetVersion = self.rollbackVersion
-                                    let confirm = NSAlert()
-                                    confirm.messageText = "Rollback to \(infoText)?"
-                                    confirm.informativeText = "This will restore a previous app version and relaunch FluidVoice."
-                                    confirm.alertStyle = .warning
-                                    confirm.addButton(withTitle: "Rollback")
-                                    confirm.addButton(withTitle: "Cancel")
-
-                                    guard confirm.runModal() == .alertFirstButtonReturn else { return }
-
-                                    self.isRollingBack = true
-                                    Task {
-                                        defer {
-                                            Task { @MainActor in
-                                                self.isRollingBack = false
-                                            }
-                                        }
-
-                                        do {
-                                            try await SimpleUpdater.shared.rollbackToLatestBackup()
-                                            await MainActor.run {
-                                                let success = NSAlert()
-                                                success.messageText = "Rollback Successful"
-                                                success.informativeText = "Rolled back to \(targetVersion). FluidVoice will relaunch shortly."
-                                                success.alertStyle = .informational
-                                                success.addButton(withTitle: "Report Bug")
-                                                success.addButton(withTitle: "OK")
-                                                let response = success.runModal()
-                                                if response == .alertFirstButtonReturn {
-                                                    self.openIssueReportingPage()
-                                                }
-                                            }
-                                        } catch {
-                                            await MainActor.run {
-                                                let fail = NSAlert()
-                                                fail.messageText = "Rollback Failed"
-                                                fail.informativeText = error.localizedDescription
-                                                fail.alertStyle = .critical
-                                                fail.addButton(withTitle: "OK")
-                                                fail.runModal()
-                                                self.refreshRollbackState()
-                                            }
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.regular)
-                                .disabled(self.rollbackVersion.isEmpty || self.isRollingBack)
-                                .opacity(self.isRollingBack ? 0.7 : 1.0)
-
-                                Button("Get Previous Builds") {
-                                    self.openPreviousBuildPicker()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.regular)
-                            }
-                            .padding(.top, 12)
-
-                            if self.rollbackVersion.isEmpty {
-                                Text("No rollback backup found.")
+                                Text("⚠️ Auto-update & manual-update disabled. Version info above is for reference only.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                            } else {
-                                Text("Rollback target: \(self.rollbackVersion)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 2)
+
+                                /* ── DISABLED: Automatic Updates toggle ──
+                                HStack(alignment: .center) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Automatic Updates").font(.body)
+                                        Text("Check for updates automatically once per hour")
+                                            .font(.subheadline).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Toggle("", isOn: Binding(
+                                        get: { SettingsStore.shared.autoUpdateCheckEnabled },
+                                        set: { SettingsStore.shared.autoUpdateCheckEnabled = $0 }
+                                    ))
+                                    .toggleStyle(.switch).tint(self.theme.palette.accent).labelsHidden()
+                                }
+
+                                HStack(alignment: .center) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Beta Releases").font(.body)
+                                        Text("Opt in to preview builds that may be unstable")
+                                            .font(.subheadline).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Toggle("", isOn: Binding(
+                                        get: { SettingsStore.shared.betaReleasesEnabled },
+                                        set: { SettingsStore.shared.betaReleasesEnabled = $0 }
+                                    ))
+                                    .toggleStyle(.switch).tint(self.theme.palette.accent).labelsHidden()
+                                }
+                                ── END DISABLED ── */
+
+                                /* ── DISABLED: Update / Rollback action buttons ──
+                                HStack(spacing: 10) {
+                                    Button("Check for Updates") { ... }
+                                    Button("Release Notes") { ... }
+                                    Button("Rollback") { ... }
+                                    Button("Get Previous Builds") { ... }
+                                }
+                                ── END DISABLED ── */
                             }
                         }
                     }

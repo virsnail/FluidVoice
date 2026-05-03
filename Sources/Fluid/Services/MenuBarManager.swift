@@ -335,26 +335,20 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.microphoneMenuItem = microphoneMenuItem
         self.microphoneSubmenu = microphoneSubmenu
 
-        // Check for Updates
-        let updateItem = NSMenuItem(
-            title: "Check for Updates...",
-            action: #selector(checkForUpdates(_:)),
-            keyEquivalent: ""
-        )
-        updateItem.target = self
-        menu.addItem(updateItem)
+        // ── Check for Updates: DISABLED for private build ──
+        // Un-comment below to re-enable:
+        // let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        // updateItem.target = self
+        // menu.addItem(updateItem)
 
         menu.addItem(.separator())
 
-        let rollbackMenuItem = NSMenuItem(
-            title: "Rollback to Previous Version...",
-            action: #selector(rollbackToPreviousVersion(_:)),
-            keyEquivalent: ""
-        )
-        rollbackMenuItem.target = self
-        rollbackMenuItem.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
-        menu.addItem(rollbackMenuItem)
-        self.rollbackMenuItem = rollbackMenuItem
+        // ── Rollback: DISABLED for private build ──
+        // let rollbackMenuItem = NSMenuItem(title: "Rollback to Previous Version...", action: #selector(rollbackToPreviousVersion(_:)), keyEquivalent: "")
+        // rollbackMenuItem.target = self
+        // rollbackMenuItem.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
+        // menu.addItem(rollbackMenuItem)
+        // self.rollbackMenuItem = rollbackMenuItem
 
         menu.addItem(.separator())
 
@@ -389,8 +383,8 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.statusMenuItem?.title = statusTitle
         self.microphoneMenuItem?.isEnabled = true
 
-        // Update rollback availability text
-        self.rollbackMenuItem?.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
+        // Rollback menu item disabled — no-op since item is removed from menu
+        // self.rollbackMenuItem?.isEnabled = SimpleUpdater.shared.hasRollbackBackup()
     }
 
     func menuWillOpen(_ menu: NSMenu) {

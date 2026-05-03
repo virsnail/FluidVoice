@@ -41,11 +41,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             properties: ["accessibility_trusted": AXIsProcessTrusted()]
         )
 
-        // Check for updates automatically if enabled (initial check on launch)
-        self.checkForUpdatesAutomatically()
-
-        // Schedule periodic update checks every hour while app is running
-        self.schedulePeriodicUpdateChecks()
+        // ── Update checks DISABLED for private build ──
+        // To re-enable: un-comment the two lines below.
+        // self.checkForUpdatesAutomatically()
+        // self.schedulePeriodicUpdateChecks()
 
         // Bring the app to front on initial launch.
         // Use a few delayed retries because SwiftUI window creation can lag app launch callbacks.
@@ -141,130 +140,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // MARK: - Periodic Update Checks
 
     private func schedulePeriodicUpdateChecks() {
-        // Schedule a timer to check for updates every hour (3600 seconds)
-        // The actual check logic inside checkForUpdatesAutomatically() handles:
-        // - Whether auto-updates are enabled
-        // - Whether enough time has passed since last check
-        // - Whether the user snoozed the prompt
-        self.updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-            DebugLogger.shared.debug("Periodic update check timer fired", source: "AppDelegate")
-            self?.checkForUpdatesAutomatically()
-        }
+        // ── DISABLED for private build: periodic update checks ──
+        // To re-enable, remove this comment and restore the Timer block below:
+        // self.updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+        //     self?.checkForUpdatesAutomatically()
+        // }
     }
 
     // MARK: - Manual Update Check
 
     @objc func checkForUpdatesManually() {
-        // Confirm invocation
-        DebugLogger.shared.info("🔎 Manual update check triggered", source: "AppDelegate")
-
-        // Get current app version for debugging
-        let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        DebugLogger.shared.info(
-            "Manual update check requested. Current version: \(currentVersion)",
-            source: "AppDelegate"
-        )
-        DebugLogger.shared.info("Checking repository: altic-dev/Fluid-oss", source: "AppDelegate")
-        DebugLogger.shared.debug("🔍 DEBUG: Manual update check started - Current version: \(currentVersion)", source: "AppDelegate")
-        DebugLogger.shared.debug("🔍 DEBUG: Repository: altic-dev/Fluid-oss", source: "AppDelegate")
-        let includePrerelease = SettingsStore.shared.betaReleasesEnabled
-        DebugLogger.shared.info(
-            "Beta releases opt-in: \(SettingsStore.shared.betaReleasesEnabled)",
-            source: "AppDelegate"
-        )
-
-        Task { @MainActor in
-            do {
-                // Use our tolerant updater to handle v-prefixed tags and 2-part versions
-                try await SimpleUpdater.shared.checkAndUpdate(
-                    owner: "altic-dev",
-                    repo: "Fluid-oss",
-                    includePrerelease: includePrerelease
-                )
-                // If we get here, an update was found; SimpleUpdater will relaunch on success
-                // Show a quick heads-up before app restarts
-                self.showUpdateAlert(
-                    title: "Update Found!",
-                    message: "A new version is available and will be installed now."
-                )
-            } catch {
-                if let pmkError = error as? PMKError, pmkError.isCancelled {
-                    DebugLogger.shared.info("App is already up-to-date", source: "AppDelegate")
-                    let isBeta = SettingsStore.shared.betaReleasesEnabled
-                    self.showUpdateAlert(
-                        title: isBeta ? "No Beta Updates" : "No Updates",
-                        message: isBeta
-                            ? "You're already running the latest build available in the beta channel."
-                            : "You're already running the latest version of Fluid!"
-                    )
-                } else {
-                    DebugLogger.shared.error("Update check failed: \(error)", source: "AppDelegate")
-                    self.showUpdateAlert(
-                        title: "Update Check Failed",
-                        message: "Unable to check for updates. Please try again later.\n\nError: \(error.localizedDescription)"
-                    )
-                }
-            }
-        }
+        // ── DISABLED for private build ──
+        // Auto-update and manual-update features are disabled.
+        // Version display is retained in Preferences → App Updates.
+        DebugLogger.shared.info("checkForUpdatesManually() called but update is disabled for this build.", source: "AppDelegate")
     }
 
     // MARK: - Automatic Update Check
 
     private func checkForUpdatesAutomatically() {
-        // Check if we should perform an automatic update check
-        guard SettingsStore.shared.shouldCheckForUpdates() else {
-            let reason = !SettingsStore.shared.autoUpdateCheckEnabled ? "disabled by user" : "checked recently"
-            DebugLogger.shared.debug("Automatic update check skipped (\(reason))", source: "AppDelegate")
-            return
-        }
-
-        DebugLogger.shared.info("Scheduling automatic update check...", source: "AppDelegate")
-
-        // Delay check slightly to avoid slowing down app launch
-        Task {
-            // Wait 3 seconds after launch before checking
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-
-            DebugLogger.shared.info("Performing automatic update check for altic-dev/Fluid-oss", source: "AppDelegate")
-
-            do {
-                let includePrerelease = SettingsStore.shared.betaReleasesEnabled
-                let result = try await SimpleUpdater.shared.checkForUpdate(
-                    owner: "altic-dev",
-                    repo: "Fluid-oss",
-                    includePrerelease: includePrerelease
-                )
-
-                // Update the last check date regardless of result
-                await MainActor.run {
-                    SettingsStore.shared.updateLastCheckDate()
-                }
-
-                if result.hasUpdate {
-                    DebugLogger.shared.info("✅ Update available: \(result.latestVersion)", source: "AppDelegate")
-
-                    // Check if user snoozed this version (clicked "Later")
-                    if SettingsStore.shared.shouldShowUpdatePrompt(forVersion: result.latestVersion) {
-                        // Show update notification on main thread
-                        await MainActor.run {
-                            self.showUpdateNotification(version: result.latestVersion)
-                        }
-                    } else {
-                        DebugLogger.shared.debug("Update prompt snoozed for \(result.latestVersion), skipping notification", source: "AppDelegate")
-                    }
-                } else {
-                    DebugLogger.shared.info("✅ App is up to date", source: "AppDelegate")
-                }
-            } catch {
-                // Silently log the error, don't bother the user with failed automatic checks
-                DebugLogger.shared.debug("Automatic update check failed: \(error.localizedDescription)", source: "AppDelegate")
-
-                // Still update last check date to avoid hammering the API on failure
-                await MainActor.run {
-                    SettingsStore.shared.updateLastCheckDate()
-                }
-            }
-        }
+        // ── DISABLED for private build ──
+        DebugLogger.shared.debug("Automatic update check is disabled for this build.", source: "AppDelegate")
     }
 
     @MainActor

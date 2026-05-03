@@ -1297,7 +1297,10 @@ final class SettingsStore: ObservableObject {
     /// Devices not in this list are placed at the end (appended dynamically when first seen).
     var inputDevicePriorityList: [String] {
         get { self.defaults.stringArray(forKey: Keys.inputDevicePriorityList) ?? [] }
-        set { self.defaults.set(newValue, forKey: Keys.inputDevicePriorityList) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.inputDevicePriorityList)
+        }
     }
 
     var preferredOutputDeviceUID: String? {
